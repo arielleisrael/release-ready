@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Release {
+  id         String        @id @default(cuid())
+  name       String
+  version    String
+  targetDate DateTime?
+  status     ReleaseStatus @default(IN_PROGRESS)
+  items      ReleaseItem[]
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+enum ReleaseStatus {
+  IN_PROGRESS
+  BLOCKED
+  RELEASED
+}
+
+model ReleaseItem {
+  id          String    @id @default(cuid())
+  releaseId   String
+  release     Release   @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  category    String
+  title       String
+  description String?
+  required    Boolean   @default(true)
+  order       Int       @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
