@@ -19,12 +19,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="font-semibold text-lg tracking-tight">
               Release Ready
             </Link>
-            <Link
-              href="/releases/new"
-              className="bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              + New Release
-            </Link>
+            <nav className="flex items-center gap-4">
+              <Link href="/templates" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
+                Templates
+              </Link>
+              <Link
+                href="/releases/new"
+                className="bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                + New Release
+              </Link>
+            </nav>
           </div>
         </header>
         <main className="max-w-4xl mx-auto px-4 py-8">{children}</main>

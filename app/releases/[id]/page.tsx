@@ -1,23 +1,35 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { prisma } from '@/lib/db'
-import { calculateReadiness, formatDate, scoreColor } from '@/lib/utils'
-import { CATEGORIES, CATEGORY_STYLES } from '@/lib/checklist'
+import { calculateReadiness, formatDate, scoreColor, progressBarColor, getCategoryStyle } from '@/lib/utils'
 import { ChecklistItem } from './ChecklistItem'
+import { FeatureSection } from './FeatureSection'
 import { updateReleaseStatus } from '@/lib/actions'
 import { ReleaseStatus } from '@/app/generated/prisma/enums'
 
+/** Release detail page: score, feature tracking, and categorized checklist. */
 export default async function ReleasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
 
   const release = await prisma.release.findUnique({
     where: { id },
-    include: { items: { orderBy: [{ category: 'asc' }, { order: 'asc' }] } },
+    include: {
+      // Sort by encoded order so template category sequence is preserved.
+      // Ties (old releases with per-category order values) are broken alphabetically.
+      items: { orderBy: [{ order: 'asc' }, { category: 'asc' }] },
+      features: { orderBy: { order: 'asc' } },
+    },
   })
 
   if (!release) notFound()
 
-  const { score, isGo, completedTotal, completedRequired, totalRequired } = calculateReadiness(release.items)
+  const { score, isGo, completedTotal, totalItems, completedRequired, totalRequired } =
+    calculateReadiness(release.items, {
+      features: release.features,
+      codeFreezeConfirmed: release.codeFreezeConfirmed,
+      noUnplannedFeatures: release.noUnplannedFeatures,
+    })
+
   const targetDate = formatDate(release.targetDate)
 
   const statusLabel =
@@ -30,6 +42,10 @@ export default async function ReleasePage({ params }: { params: Promise<{ id: st
     release.status === 'BLOCKED'  ? 'bg-amber-100 text-amber-700' :
     isGo                          ? 'bg-emerald-100 text-emerald-700' :
                                     'bg-red-100 text-red-700'
+
+  // Derive categories in order from sorted items (no hardcoded CATEGORIES constant).
+  // The 1000× order encoding ensures template category sequence is preserved.
+  const orderedCategories = [...new Set(release.items.map((item) => item.category))]
 
   return (
     <div>
@@ -62,16 +78,16 @@ export default async function ReleasePage({ params }: { params: Promise<{ id: st
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-300 ${score >= 80 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                className={`h-full rounded-full transition-all duration-300 ${progressBarColor(score)}`}
                 style={{ width: `${score}%` }}
               />
             </div>
             <span className="text-sm text-gray-500 tabular-nums shrink-0">
-              {completedTotal}/{release.items.length}
+              {completedTotal}/{totalItems}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            {completedRequired}/{totalRequired} required items complete
+            {completedRequired}/{totalRequired} required checklist items complete
             {isGo && release.status === 'IN_PROGRESS' && (
               <span className="ml-2 text-emerald-600 font-medium">✓ All required done</span>
             )}
@@ -83,20 +99,29 @@ export default async function ReleasePage({ params }: { params: Promise<{ id: st
           <div className="mt-4 pt-4 border-t border-gray-100 flex gap-2 flex-wrap">
             {release.status !== 'BLOCKED' && (
               <form action={updateReleaseStatus.bind(null, release.id, ReleaseStatus.BLOCKED)}>
-                <button type="submit" className="text-xs text-amber-600 border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors">
+                <button
+                  type="submit"
+                  className="text-xs text-amber-600 border border-amber-200 bg-amber-50 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors"
+                >
                   Mark Blocked
                 </button>
               </form>
             )}
             {release.status === 'BLOCKED' && (
               <form action={updateReleaseStatus.bind(null, release.id, ReleaseStatus.IN_PROGRESS)}>
-                <button type="submit" className="text-xs text-gray-600 border border-gray-200 bg-gray-50 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <button
+                  type="submit"
+                  className="text-xs text-gray-600 border border-gray-200 bg-gray-50 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                >
                   Unblock
                 </button>
               </form>
             )}
             <form action={updateReleaseStatus.bind(null, release.id, ReleaseStatus.RELEASED)}>
-              <button type="submit" className="text-xs text-gray-600 border border-gray-200 bg-gray-50 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <button
+                type="submit"
+                className="text-xs text-gray-600 border border-gray-200 bg-gray-50 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              >
                 Mark Released
               </button>
             </form>
@@ -104,20 +129,28 @@ export default async function ReleasePage({ params }: { params: Promise<{ id: st
         )}
       </div>
 
+      {/* Feature Tracking (RR-004) */}
+      <FeatureSection
+        releaseId={release.id}
+        features={release.features}
+        codeFreezeConfirmed={release.codeFreezeConfirmed}
+        noUnplannedFeatures={release.noUnplannedFeatures}
+      />
+
       {/* Checklist by category */}
       <div className="space-y-4">
-        {CATEGORIES.map((category) => {
+        {orderedCategories.map((category, index) => {
           const categoryItems = release.items.filter((i) => i.category === category)
-          if (categoryItems.length === 0) return null
-
           const completedCount = categoryItems.filter((i) => i.completed).length
-          const styles = CATEGORY_STYLES[category]
+          const styles = getCategoryStyle(index)
 
           return (
             <div key={category} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className={`flex items-center justify-between px-4 py-3 border-b border-gray-100 ${styles.header}`}>
                 <span className="text-sm font-semibold">{category}</span>
-                <span className="text-sm tabular-nums opacity-75">{completedCount}/{categoryItems.length}</span>
+                <span className="text-sm tabular-nums opacity-75">
+                  {completedCount}/{categoryItems.length}
+                </span>
               </div>
               <div className="divide-y divide-gray-50">
                 {categoryItems.map((item) => (
