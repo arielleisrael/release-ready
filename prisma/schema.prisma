@@ -7,15 +7,77 @@ datasource db {
   provider = "postgresql"
 }
 
+// ---------------------------------------------------------------------------
+// Templates (RR-002)
+// ---------------------------------------------------------------------------
+
+/// A named, reusable checklist structure. One template is marked isDefault
+/// and pre-selected when creating a new release.
+model Template {
+  id         String             @id @default(cuid())
+  name       String
+  /// When true this template is pre-selected on the create-release form.
+  /// Only one template should have isDefault = true at a time.
+  isDefault  Boolean            @default(false)
+  categories TemplateCategory[]
+  releases   Release[]
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+}
+
+/// An ordered group of checklist items within a template (e.g. "Testing", "Security").
+/// Stored as a separate entity so categories can be renamed without touching every item.
+model TemplateCategory {
+  id         String         @id @default(cuid())
+  templateId String
+  template   Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name       String
+  order      Int            @default(0)
+  items      TemplateItem[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+/// A single checklist item within a template category.
+model TemplateItem {
+  id          String           @id @default(cuid())
+  categoryId  String
+  category    TemplateCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  /// Required items must be completed for the release to reach GO status.
+  required    Boolean          @default(true)
+  order       Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Releases
+// ---------------------------------------------------------------------------
+
 model Release {
   id         String        @id @default(cuid())
   name       String
   version    String
   targetDate DateTime?
   status     ReleaseStatus @default(IN_PROGRESS)
-  items      ReleaseItem[]
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+
+  /// The template this release was created from. Informational only —
+  /// checklist items are copied at creation time and are not linked back.
+  templateId String?
+  template   Template?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  items    ReleaseItem[]
+  features Feature[]
+
+  /// Release-level feature-readiness gates (RR-004).
+  /// Both are required for GO status.
+  codeFreezeConfirmed Boolean @default(false)
+  noUnplannedFeatures Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum ReleaseStatus {
@@ -28,6 +90,8 @@ model ReleaseItem {
   id          String    @id @default(cuid())
   releaseId   String
   release     Release   @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  /// Category name copied from TemplateCategory.name at release-creation time.
+  /// Stored as a plain string so template edits do not affect in-progress releases.
   category    String
   title       String
   description String?
@@ -38,4 +102,22 @@ model ReleaseItem {
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Feature Tracking (RR-004)
+// ---------------------------------------------------------------------------
+
+/// A planned feature expected in this release. Each feature tracks whether
+/// its implementation is code-complete. All features must be code-complete
+/// for the release to reach GO status.
+model Feature {
+  id           String   @id @default(cuid())
+  releaseId    String
+  release      Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  name         String
+  codeComplete Boolean  @default(false)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
